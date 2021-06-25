@@ -1,0 +1,22 @@
+<configuration>
+	<appender name="stdout"
+		class="ch.qos.logback.core.ConsoleAppender">
+		<encoder>
+			<pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5p %m%n</pattern>
+		</encoder>
+	</appender>
+	<appender name="fout" class="ch.qos.logback.core.FileAppender">
+		<!-- C:\Projects\CSFetch\log\GenerateTemplateJavaLog.log</file>-->
+		<file>F:\Projects\AGL_V1\Log\DispatchProcessJavaLog.log</file>
+		<!-- <file>C:\Projects\CSFetch\log\DispatchProcessJavaLog.log</file> -->
+		<encoder>
+			<pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5p %m%n</pattern>
+		</encoder>
+	</appender>
+
+	<root level="info">
+		<appender-ref ref="stdout" />
+		<appender-ref ref="fout" />
+	</root>
+</configuration>
+
