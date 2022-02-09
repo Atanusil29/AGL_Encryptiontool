@@ -8,20 +8,21 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
 import java.io.UnsupportedEncodingException;
+import java.nio.ByteBuffer;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 
 import javax.crypto.Cipher;
-import javax.crypto.spec.SecretKeySpec;
-
+import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
 import org.apache.commons.io.IOUtils;
+
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
 import org.apache.http.NameValuePair;
@@ -76,12 +77,26 @@ public class OTCSConnect {
 	private String categoryDoc = null;
 	private ArrayList<String> categoryDocKeys = new ArrayList<String>();
 	private ArrayList<String> categoryDocValues = new ArrayList<String>();
+	
+    private static final String ENCRYPT_ALGO = "AES/GCM/NoPadding";
 
-	private SecretKeySpec secretKey;
-	private byte[] key;
+    private static final int TAG_LENGTH_BIT = 128; // must be one of {128, 120, 112, 104, 96}
+    private static final int IV_LENGTH_BYTE = 12;
+    private static final int SALT_LENGTH_BYTE = 16;
+    private static final Charset UTF_8 = StandardCharsets.UTF_8;
 
-	public static void main(String[] args) {
+	public static void main(String[] args) throws Exception {
+		
+    	String PASSWORD = "Wnu9VGTh";
 
+    	try {
+		
+    		String decryptedText = decrypt("Dx0o+DiEJsTzOHMd53shqMXb4292YQ6h4agv+zHqA6wdZwG5ULMSvNIFbowP6oUW", PASSWORD);
+    		System.out.println("Decrypted text: " + decryptedText);
+    		
+    	} catch (ArrayIndexOutOfBoundsException e) {
+    		System.out.println("Please provide a text to encrypt as parameter!");
+    	}
 	}
 
 	/**
@@ -229,6 +244,16 @@ public class OTCSConnect {
 
 		String msg;
 
+		//Decrypt OTCS password
+		String decryptedPassword = null;
+		String PASSWORD = "Wnu9VGTh";
+		
+		try {
+			decryptedPassword = decrypt(csPassword, PASSWORD);
+		} catch (Exception e) {
+			LOG.error("getOTCSTicket : Post setup : Password decryption failed");
+		}
+		
 		// Create an http instance and set the url for authentication
 		HttpClient httpclient = HttpClients.createDefault();
 		HttpPost httppost = new HttpPost(contentServerURL + "/api/v1/auth");
@@ -238,7 +263,7 @@ public class OTCSConnect {
 		// Set username and decryptedpassword in body of POST call
 		List<NameValuePair> params = new ArrayList<NameValuePair>(2);
 		params.add(new BasicNameValuePair("username", csUsername));
-		params.add(new BasicNameValuePair("password", decrypt(csPassword)));
+		params.add(new BasicNameValuePair("password", decryptedPassword));
 
 		try {
 			httppost.setEntity(new UrlEncodedFormEntity(params, "UTF-8"));
@@ -874,51 +899,6 @@ public class OTCSConnect {
 		}
 	}
 
-	/**
-	 * Sets key object, used in password decryption
-	 * 
-	 * @param myKey: Password generation key
-	 */
-	private void setKey(String myKey) {
-		MessageDigest sha = null;
-		try {
-			key = myKey.getBytes("UTF-8");
-
-			sha = MessageDigest.getInstance("SHA-1");
-
-			key = sha.digest(key);
-			key = Arrays.copyOf(key, 16);
-
-			secretKey = new SecretKeySpec(key, "AES");
-
-		} catch (NoSuchAlgorithmException | UnsupportedEncodingException e) {
-			LOG.error("Error setting decryption key ", e);
-		}
-	}
-
-	/**
-	 * Decrypts password string
-	 * 
-	 * @param strToDecrypt: Encrypted password
-	 * @return decrypted password as string, null on failure
-	 */
-	private String decrypt(String strToDecrypt) {
-
-		String secret = "Wnu9VGTh";
-
-		try {
-			setKey(secret);
-
-			Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5PADDING");
-			cipher.init(Cipher.DECRYPT_MODE, secretKey);
-
-			return new String(cipher.doFinal(Base64.getDecoder().decode(strToDecrypt)));
-
-		} catch (Exception e) {
-			LOG.debug("Error while decrypting: ", e);
-		}
-		return null;
-	}
 
 	/**
 	 * Returns strings of equal length with every character being an asterisk
@@ -978,4 +958,34 @@ public class OTCSConnect {
 
 		return JSON.toString();
 	}
+
+    // we need the same password, salt and iv to decrypt it
+    public static String decrypt(String cText, String password) throws Exception {
+
+        byte[] decode = Base64.getDecoder().decode(cText.getBytes(UTF_8));
+
+        // get back the iv and salt from the cipher text
+        ByteBuffer bb = ByteBuffer.wrap(decode);
+
+        byte[] iv = new byte[IV_LENGTH_BYTE];
+        bb.get(iv);
+
+        byte[] salt = new byte[SALT_LENGTH_BYTE];
+        bb.get(salt);
+
+        byte[] cipherText = new byte[bb.remaining()];
+        bb.get(cipherText);
+
+        // get back the aes key from the same password and salt
+        SecretKey aesKeyFromPassword = CryptoUtils.getAESKeyFromPassword(password.toCharArray(), salt);
+
+        Cipher cipher = Cipher.getInstance(ENCRYPT_ALGO);
+
+        cipher.init(Cipher.DECRYPT_MODE, aesKeyFromPassword, new GCMParameterSpec(TAG_LENGTH_BIT, iv));
+
+        byte[] plainText = cipher.doFinal(cipherText);
+
+        return new String(plainText, UTF_8);
+
+    }
 }
